@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { convex, convexHabilitado } from './convexClient'
 import Footer from './Footer.jsx'
 
@@ -21,6 +21,7 @@ export default function Admin() {
   const [subiendo, setSubiendo] = useState(false)
   const [errorSubida, setErrorSubida] = useState('')
   const [ultimoCreado, setUltimoCreado] = useState(null) // { numero, url }
+  const fileInputRef = useRef(null)
 
   // Listado
   const [informes, setInformes] = useState([])
@@ -89,6 +90,25 @@ export default function Admin() {
     setUltimoCreado(null)
   }
 
+  // Selecciona un archivo (NO lo sube todavía: solo lo deja pendiente).
+  function seleccionarArchivo(e) {
+    setErrorSubida('')
+    const f = e.target.files?.[0] ?? null
+    if (f && f.type !== 'application/pdf') {
+      setErrorSubida('El archivo debe ser un PDF.')
+      descartarArchivo()
+      return
+    }
+    setArchivo(f)
+  }
+
+  // Descarta el archivo pendiente. Nada se sube ni se guarda en la base de datos.
+  function descartarArchivo() {
+    setArchivo(null)
+    setErrorSubida('')
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   async function handleSubida(e) {
     e.preventDefault()
     setErrorSubida('')
@@ -125,9 +145,8 @@ export default function Admin() {
       })
 
       setUltimoCreado({ numero: r.numero, url: enlaceVerificacion(r.numero) })
-      setArchivo(null)
       setTitulo('')
-      e.target.reset?.()
+      descartarArchivo()
       await cargarInformes(token)
     } catch (err) {
       console.error(err)
@@ -255,11 +274,35 @@ export default function Admin() {
               Archivo PDF
             </label>
             <input
+              ref={fileInputRef}
               type="file"
               accept="application/pdf"
-              onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
-              className="mb-4 block w-full text-sm text-gray-600 file:mr-4 file:rounded-full file:border-0 file:bg-ua-cyan file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-ua-cyan-dark"
+              onChange={seleccionarArchivo}
+              className="mb-3 block w-full text-sm text-gray-600 file:mr-4 file:rounded-full file:border-0 file:bg-ua-cyan file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-ua-cyan-dark"
             />
+
+            {/* Archivo pendiente: aún NO se ha subido ni guardado. */}
+            {archivo && (
+              <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-ua-cyan/40 bg-ua-cyan/10 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-gray-800">
+                    📄 {archivo.name}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {(archivo.size / 1024).toFixed(0)} KB · pendiente, sin guardar
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={descartarArchivo}
+                  title="Descartar archivo"
+                  aria-label="Descartar archivo"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 text-lg font-bold leading-none text-red-600 transition hover:bg-red-200"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
             <label className="mb-2 block text-sm font-medium text-gray-700">
               Título (opcional)
             </label>
@@ -272,11 +315,14 @@ export default function Admin() {
             />
             <button
               type="submit"
-              disabled={subiendo}
-              className="w-full rounded-full bg-ua-cyan px-6 py-3 font-semibold text-white shadow-md transition hover:bg-ua-cyan-dark disabled:opacity-70"
+              disabled={subiendo || !archivo}
+              className="w-full rounded-full bg-ua-cyan px-6 py-3 font-semibold text-white shadow-md transition hover:bg-ua-cyan-dark disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {subiendo ? 'Subiendo…' : 'Subir y generar número'}
+              {subiendo ? 'Guardando…' : 'Guardar informe'}
             </button>
+            <p className="mt-2 text-center text-xs text-gray-400">
+              Nada se guarda en la base de datos hasta pulsar “Guardar informe”.
+            </p>
             {errorSubida && (
               <p role="alert" className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-center text-sm font-medium text-red-600">
                 {errorSubida}
