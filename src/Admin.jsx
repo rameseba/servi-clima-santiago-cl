@@ -265,7 +265,7 @@ export default function Admin() {
         </section>
         <a
           href="/"
-          className="mt-5 text-sm font-medium text-white/80 underline-offset-2 transition hover:text-white hover:underline"
+          className="mt-6 inline-block rounded-full bg-white/15 px-6 py-2.5 text-sm font-semibold text-white shadow-md ring-1 ring-white/30 transition hover:bg-white/25"
         >
           ← Volver al inicio
         </a>
@@ -501,11 +501,11 @@ export default function Admin() {
 
 function Centrado({ children }) {
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center bg-ua-blue px-4">
-      {children}
-      <div className="absolute inset-x-0 bottom-0">
-        <Footer />
+    <div className="flex min-h-screen flex-col bg-ua-blue px-4">
+      <div className="flex flex-1 flex-col items-center justify-center py-10">
+        {children}
       </div>
+      <Footer />
     </div>
   )
 }
