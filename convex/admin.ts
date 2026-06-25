@@ -16,22 +16,42 @@ function nuevoToken() {
 }
 
 /**
- * Genera un número de informe SEGURO y NO ADIVINABLE.
- * Formato: INF-<año>-<12 chars base32>.
- * Se usa aleatoriedad criptográfica (crypto.getRandomValues), por lo que el
- * espacio de búsqueda es ~32^12 (≈60 bits). El número actúa como clave de
- * acceso secreta al informe; la seguridad depende de la entropía, no de
- * ocultar este algoritmo. SE EJECUTA SOLO EN EL SERVIDOR.
+ * Genera un código de certificado SEGURO y NO ADIVINABLE, SIN puntos ni guión.
+ * Dos formatos:
+ *   - 'alfanumerico': 12 chars base32 Crockford (≈60 bits). Ej: K7M2QX8ZP4T9
+ *   - 'numerico': 15 dígitos. Ej: 482913756204831
+ * Usa aleatoriedad criptográfica (crypto.getRandomValues). El código actúa como
+ * clave de acceso secreta; la seguridad depende de la entropía, no de ocultar
+ * este algoritmo. SE EJECUTA SOLO EN EL SERVIDOR.
  */
-function generarNumeroSeguro() {
-  // Alfabeto Crockford base32: sin I, L, O, U para evitar ambigüedad visual.
+function generarCodigoSeguro(formato) {
+  if (formato === 'numerico') {
+    const bytes = new Uint8Array(15)
+    crypto.getRandomValues(bytes)
+    let s = ''
+    for (const b of bytes) s += (b % 10).toString()
+    // Evita el 0 inicial para que se lea como un número de 15 dígitos.
+    if (s[0] === '0') s = (1 + (bytes[0] % 9)).toString() + s.slice(1)
+    return s
+  }
+  // Alfanumérico base32 Crockford: sin I, L, O, U (sin ambigüedad visual).
   const alfabeto = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
   const bytes = new Uint8Array(12)
   crypto.getRandomValues(bytes)
   let s = ''
-  for (const byte of bytes) s += alfabeto[byte % 32]
-  const anio = new Date().getFullYear()
-  return `INF-${anio}-${s}`
+  for (const b of bytes) s += alfabeto[b % 32]
+  return s
+}
+
+const FORMATO_DEFECTO = 'alfanumerico'
+
+// Lee el formato por defecto configurado en el panel.
+async function leerFormatoDefault(ctx) {
+  const c = await ctx.db
+    .query('config')
+    .withIndex('by_clave', (q) => q.eq('clave', 'formatoDefault'))
+    .unique()
+  return c?.valor === 'numerico' ? 'numerico' : FORMATO_DEFECTO
 }
 
 // Valida un token de sesión; lanza si no es válido o expiró.
@@ -112,14 +132,19 @@ export const crearInforme = mutation({
     token: v.string(),
     storageId: v.id('_storage'),
     titulo: v.optional(v.string()),
+    formato: v.optional(
+      v.union(v.literal('alfanumerico'), v.literal('numerico')),
+    ),
   },
-  handler: async (ctx, { token, storageId, titulo }) => {
+  handler: async (ctx, { token, storageId, titulo, formato }) => {
     await requireSesion(ctx, token)
 
-    // Genera un número único (reintenta ante una colisión, muy improbable).
+    const fmt = formato ?? (await leerFormatoDefault(ctx))
+
+    // Genera un código único (reintenta ante una colisión, muy improbable).
     let numero = null
     for (let i = 0; i < 6; i++) {
-      const candidato = generarNumeroSeguro()
+      const candidato = generarCodigoSeguro(fmt)
       const choque = await ctx.db
         .query('informes')
         .withIndex('by_numero', (q) => q.eq('numero', candidato))
@@ -130,11 +155,41 @@ export const crearInforme = mutation({
       }
     }
     if (!numero) {
-      throw new Error('No se pudo generar un número único. Inténtalo de nuevo.')
+      throw new Error('No se pudo generar un código único. Inténtalo de nuevo.')
     }
 
     const id = await ctx.db.insert('informes', { numero, storageId, titulo })
     return { id, numero }
+  },
+})
+
+// Devuelve la configuración del panel (formato por defecto).
+export const getConfig = query({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    await requireSesion(ctx, token)
+    return { formatoDefault: await leerFormatoDefault(ctx) }
+  },
+})
+
+// Establece el formato por defecto para los nuevos certificados.
+export const setFormatoDefault = mutation({
+  args: {
+    token: v.string(),
+    formato: v.union(v.literal('alfanumerico'), v.literal('numerico')),
+  },
+  handler: async (ctx, { token, formato }) => {
+    await requireSesion(ctx, token)
+    const existente = await ctx.db
+      .query('config')
+      .withIndex('by_clave', (q) => q.eq('clave', 'formatoDefault'))
+      .unique()
+    if (existente) {
+      await ctx.db.patch(existente._id, { valor: formato })
+    } else {
+      await ctx.db.insert('config', { clave: 'formatoDefault', valor: formato })
+    }
+    return { ok: true }
   },
 })
 

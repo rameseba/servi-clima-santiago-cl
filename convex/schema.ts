@@ -18,4 +18,10 @@ export default defineSchema({
     token: v.string(),
     expiraEn: v.number(), // timestamp ms de expiración
   }).index('by_token', ['token']),
+
+  // Configuración del panel (singleton por clave). Ej: formato por defecto.
+  config: defineTable({
+    clave: v.string(), // 'formatoDefault'
+    valor: v.string(), // 'alfanumerico' | 'numerico'
+  }).index('by_clave', ['clave']),
 })

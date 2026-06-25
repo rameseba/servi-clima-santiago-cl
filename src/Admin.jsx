@@ -23,6 +23,10 @@ export default function Admin() {
   const [ultimoCreado, setUltimoCreado] = useState(null) // { numero, url }
   const fileInputRef = useRef(null)
 
+  // Formato del código del certificado
+  const [formato, setFormato] = useState('alfanumerico') // selección actual
+  const [guardarComoDefault, setGuardarComoDefault] = useState(false)
+
   // Listado
   const [informes, setInformes] = useState([])
 
@@ -35,6 +39,7 @@ export default function Admin() {
           if (ok) {
             setAutenticado(true)
             await cargarInformes(token)
+            await cargarConfig(token)
           } else {
             localStorage.removeItem(TOKEN_KEY)
           }
@@ -57,6 +62,15 @@ export default function Admin() {
     }
   }
 
+  async function cargarConfig(tk) {
+    try {
+      const cfg = await convex.query('admin:getConfig', { token: tk })
+      if (cfg?.formatoDefault) setFormato(cfg.formatoDefault)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
   async function handleLogin(e) {
     e.preventDefault()
     setErrorLogin('')
@@ -68,6 +82,7 @@ export default function Admin() {
         setAutenticado(true)
         setPassword('')
         await cargarInformes(r.token)
+        await cargarConfig(r.token)
       } else {
         setErrorLogin('Usuario o contraseña incorrectos.')
       }
@@ -137,12 +152,20 @@ export default function Admin() {
       if (!res.ok) throw new Error('Falló la subida del archivo.')
       const { storageId } = await res.json()
 
-      // 3) Crear el informe; el servidor genera el número seguro.
+      // 3) Crear el certificado; el servidor genera el código seguro
+      //    según el formato elegido.
       const r = await convex.mutation('admin:crearInforme', {
         token,
         storageId,
         titulo: titulo.trim() || undefined,
+        formato,
       })
+
+      // Si se marcó, deja este formato como predeterminado para los próximos.
+      if (guardarComoDefault) {
+        await convex.mutation('admin:setFormatoDefault', { token, formato })
+        setGuardarComoDefault(false)
+      }
 
       setUltimoCreado({ numero: r.numero, url: enlaceVerificacion(r.numero) })
       setTitulo('')
@@ -150,20 +173,20 @@ export default function Admin() {
       await cargarInformes(token)
     } catch (err) {
       console.error(err)
-      setErrorSubida(err.message || 'Ocurrió un error al subir el informe.')
+      setErrorSubida(err.message || 'Ocurrió un error al subir el certificado.')
     } finally {
       setSubiendo(false)
     }
   }
 
   async function handleEliminar(id) {
-    if (!confirm('¿Eliminar este informe? Esta acción no se puede deshacer.')) return
+    if (!confirm('¿Eliminar este certificado? Esta acción no se puede deshacer.')) return
     try {
       await convex.mutation('admin:eliminarInforme', { token, id })
       await cargarInformes(token)
     } catch (err) {
       console.error(err)
-      alert('No se pudo eliminar el informe.')
+      alert('No se pudo eliminar el certificado.')
     }
   }
 
@@ -240,6 +263,12 @@ export default function Admin() {
             )}
           </form>
         </section>
+        <a
+          href="/"
+          className="mt-5 text-sm font-medium text-white/80 underline-offset-2 transition hover:text-white hover:underline"
+        >
+          ← Volver al inicio
+        </a>
       </Centrado>
     )
   }
@@ -254,19 +283,27 @@ export default function Admin() {
             alt="Universidad de Antofagasta"
             className="w-40 [filter:brightness(0)_invert(1)]"
           />
-          <button
-            onClick={handleLogout}
-            className="rounded-full bg-white/15 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/25"
-          >
-            Cerrar sesión
-          </button>
+          <div className="flex items-center gap-2">
+            <a
+              href="/"
+              className="rounded-full bg-white/15 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/25"
+            >
+              ← Inicio
+            </a>
+            <button
+              onClick={handleLogout}
+              className="rounded-full bg-white/15 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/25"
+            >
+              Cerrar sesión
+            </button>
+          </div>
         </header>
 
-        {/* Subir informe */}
+        {/* Subir certificado */}
         <section className="mb-6 overflow-hidden rounded-2xl bg-white shadow-xl">
           <div className="bg-ua-cyan px-6 py-4">
             <h2 className="text-lg font-bold uppercase tracking-wide text-white">
-              Subir nuevo informe
+              Subir nuevo certificado
             </h2>
           </div>
           <form onSubmit={handleSubida} className="px-6 py-6">
@@ -310,18 +347,63 @@ export default function Admin() {
               type="text"
               value={titulo}
               onChange={(e) => setTitulo(e.target.value)}
-              placeholder="Ej: Informe de ensayo de hormigón"
+              placeholder="Ej: Certificado de ensayo de hormigón"
               className="mb-4 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-800 outline-none focus:border-ua-cyan focus:ring-2 focus:ring-ua-cyan/40"
             />
+
+            {/* Formato del código del certificado (sin puntos ni guión) */}
+            <label className="mb-2 block text-sm font-medium text-gray-700">
+              Formato del N° de certificado
+            </label>
+            <div className="mb-2 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setFormato('alfanumerico')}
+                className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                  formato === 'alfanumerico'
+                    ? 'border-ua-cyan bg-ua-cyan/10 text-ua-blue'
+                    : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Alfanumérico
+                <span className="block text-[11px] font-normal text-gray-400">
+                  Ej: K7M2QX8ZP4T9
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormato('numerico')}
+                className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                  formato === 'numerico'
+                    ? 'border-ua-cyan bg-ua-cyan/10 text-ua-blue'
+                    : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Solo números
+                <span className="block text-[11px] font-normal text-gray-400">
+                  Ej: 482913756204831
+                </span>
+              </button>
+            </div>
+            <label className="mb-4 flex items-center gap-2 text-xs text-gray-600">
+              <input
+                type="checkbox"
+                checked={guardarComoDefault}
+                onChange={(e) => setGuardarComoDefault(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-ua-cyan focus:ring-ua-cyan"
+              />
+              Usar este formato como predeterminado de ahora en adelante
+            </label>
+
             <button
               type="submit"
               disabled={subiendo || !archivo}
               className="w-full rounded-full bg-ua-cyan px-6 py-3 font-semibold text-white shadow-md transition hover:bg-ua-cyan-dark disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {subiendo ? 'Guardando…' : 'Guardar informe'}
+              {subiendo ? 'Guardando…' : 'Guardar certificado'}
             </button>
             <p className="mt-2 text-center text-xs text-gray-400">
-              Nada se guarda en la base de datos hasta pulsar “Guardar informe”.
+              Nada se guarda en la base de datos hasta pulsar “Guardar certificado”.
             </p>
             {errorSubida && (
               <p role="alert" className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-center text-sm font-medium text-red-600">
@@ -334,7 +416,7 @@ export default function Admin() {
           {ultimoCreado && (
             <div className="mx-6 mb-6 rounded-xl border border-green-200 bg-green-50 p-4">
               <p className="text-sm text-green-800">
-                ✅ Informe subido. Número de verificación generado:
+                ✅ Certificado subido. N° de verificación generado:
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <code className="rounded bg-white px-3 py-1 font-mono text-base font-bold text-ua-blue">
@@ -362,13 +444,13 @@ export default function Admin() {
         <section className="overflow-hidden rounded-2xl bg-white shadow-xl">
           <div className="bg-ua-blue px-6 py-4">
             <h2 className="text-lg font-bold uppercase tracking-wide text-white">
-              Informes ({informes.length})
+              Certificados ({informes.length})
             </h2>
           </div>
           <ul className="divide-y divide-gray-100">
             {informes.length === 0 && (
               <li className="px-6 py-6 text-center text-sm text-gray-500">
-                Aún no hay informes.
+                Aún no hay certificados.
               </li>
             )}
             {informes.map((inf) => (

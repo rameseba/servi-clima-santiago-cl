@@ -77,7 +77,7 @@ export default function App() {
   async function ejecutarBusqueda(numero, { nuevaPestana = true } = {}) {
     setError('')
     if (!numero) {
-      setError('Por favor ingresa un número de informe.')
+      setError('Por favor ingresa el número de certificado.')
       return
     }
 
@@ -95,11 +95,11 @@ export default function App() {
           window.location.assign(urlPdf)
         }
       } else {
-        setError('El informe no existe o el número es incorrecto.')
+        setError('El certificado no existe o el número es incorrecto.')
       }
     } catch (err) {
-      console.error('Error al buscar el informe:', err)
-      setError('Ocurrió un error al buscar el informe. Inténtalo nuevamente.')
+      console.error('Error al buscar el certificado:', err)
+      setError('Ocurrió un error al buscar el certificado. Inténtalo nuevamente.')
     } finally {
       setCargando(false)
     }
@@ -144,26 +144,26 @@ export default function App() {
           {/* Banner superior celeste */}
           <header className="bg-ua-cyan px-6 py-4">
             <h1 className="text-lg font-bold uppercase tracking-wide text-white sm:text-xl">
-              Verificación de Informes UA
+              Verificación de Certificados UA
             </h1>
           </header>
 
           {/* Formulario */}
           <form onSubmit={handleSubmit} className="px-6 py-8" noValidate>
             <label
-              htmlFor="numeroInforme"
+              htmlFor="numeroCertificado"
               className="mb-2 block text-base font-medium text-gray-700"
             >
-              Número de Informe
+              Certificado N°
             </label>
 
             <input
-              id="numeroInforme"
-              name="numeroInforme"
+              id="numeroCertificado"
+              name="numeroCertificado"
               type="text"
               value={numeroInforme}
               onChange={(e) => setNumeroInforme(e.target.value)}
-              placeholder="INF-2026-XXXXXXXXXXXX"
+              placeholder="Ej: K7M2QX8ZP4T9"
               autoComplete="off"
               className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-800 placeholder-gray-400 outline-none transition focus:border-ua-cyan focus:ring-2 focus:ring-ua-cyan/40"
             />
@@ -173,7 +173,7 @@ export default function App() {
               disabled={cargando}
               className="mt-5 w-full rounded-full bg-ua-cyan px-6 py-3 text-lg font-semibold text-white shadow-md transition hover:bg-ua-cyan-dark focus:outline-none focus:ring-2 focus:ring-ua-cyan/50 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {cargando ? 'Buscando…' : 'Ver Informe'}
+              {cargando ? 'Buscando…' : 'Ver Certificado'}
             </button>
 
             {/* Mensaje de error amigable */}
