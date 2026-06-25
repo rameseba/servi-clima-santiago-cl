@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { convex, convexHabilitado } from './convexClient'
+import Footer from './Footer.jsx'
 
 const LOGO_UA = '/logo-ua.png'
 const TOKEN_KEY = 'ua_admin_token'
@@ -363,6 +364,8 @@ export default function Admin() {
             ))}
           </ul>
         </section>
+
+        <Footer />
       </div>
     </div>
   )
@@ -370,8 +373,11 @@ export default function Admin() {
 
 function Centrado({ children }) {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-ua-blue px-4">
+    <div className="relative flex min-h-screen flex-col items-center justify-center bg-ua-blue px-4">
       {children}
+      <div className="absolute inset-x-0 bottom-0">
+        <Footer />
+      </div>
     </div>
   )
 }

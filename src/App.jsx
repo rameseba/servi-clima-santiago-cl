@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { convex, convexHabilitado } from './convexClient'
+import Footer from './Footer.jsx'
 
 // Permite abrir un informe directamente vía enlace: /?n=INF-2026-XXXX
 function numeroDesdeURL() {
@@ -186,6 +187,8 @@ export default function App() {
             )}
           </form>
         </section>
+
+        <Footer />
       </main>
     </div>
   )
