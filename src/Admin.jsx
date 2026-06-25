@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import QRCode from 'qrcode'
 import { convex, convexHabilitado } from './convexClient'
 import Footer from './Footer.jsx'
 
@@ -29,6 +30,8 @@ export default function Admin() {
 
   // Listado
   const [informes, setInformes] = useState([])
+  // Id del certificado cuyo QR está desplegado en el listado.
+  const [qrVisibleId, setQrVisibleId] = useState(null)
 
   // Al montar: validar el token guardado y cargar el listado.
   useEffect(() => {
@@ -436,6 +439,15 @@ export default function Admin() {
                 </button>
               </div>
               <p className="mt-2 break-all text-xs text-green-700">{ultimoCreado.url}</p>
+
+              {/* Código QR del enlace directo: al escanearlo se abre y verifica
+                  el certificado desde el teléfono, sin escribir nada. */}
+              <div className="mt-4 flex flex-col items-center gap-2 border-t border-green-200 pt-4">
+                <p className="text-xs font-medium text-green-800">
+                  Código QR para verificar desde el teléfono
+                </p>
+                <QrBloque url={ultimoCreado.url} numero={ultimoCreado.numero} size={180} />
+              </div>
             </div>
           )}
         </section>
@@ -454,40 +466,57 @@ export default function Admin() {
               </li>
             )}
             {informes.map((inf) => (
-              <li key={inf._id} className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
-                <div className="min-w-0">
-                  <code className="font-mono text-sm font-bold text-ua-blue">{inf.numero}</code>
-                  {inf.titulo && (
-                    <p className="truncate text-sm text-gray-600">{inf.titulo}</p>
-                  )}
+              <li key={inf._id} className="px-6 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <code className="font-mono text-sm font-bold text-ua-blue">{inf.numero}</code>
+                    {inf.titulo && (
+                      <p className="truncate text-sm text-gray-600">{inf.titulo}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {inf.url && (
+                      <>
+                        <a
+                          href={inf.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-full bg-ua-cyan px-3 py-1.5 text-xs font-semibold text-white hover:bg-ua-cyan-dark"
+                        >
+                          Ver
+                        </a>
+                        <a
+                          href={inf.url}
+                          download
+                          className="rounded-full bg-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-300"
+                        >
+                          Descargar
+                        </a>
+                      </>
+                    )}
+                    <button
+                      onClick={() =>
+                        setQrVisibleId((id) => (id === inf._id ? null : inf._id))
+                      }
+                      className="rounded-full bg-ua-blue/10 px-3 py-1.5 text-xs font-semibold text-ua-blue hover:bg-ua-blue/20"
+                    >
+                      {qrVisibleId === inf._id ? 'Ocultar QR' : 'QR'}
+                    </button>
+                    <button
+                      onClick={() => handleEliminar(inf._id)}
+                      className="rounded-full bg-red-100 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-200"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {inf.url && (
-                    <>
-                      <a
-                        href={inf.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="rounded-full bg-ua-cyan px-3 py-1.5 text-xs font-semibold text-white hover:bg-ua-cyan-dark"
-                      >
-                        Ver
-                      </a>
-                      <a
-                        href={inf.url}
-                        download
-                        className="rounded-full bg-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-300"
-                      >
-                        Descargar
-                      </a>
-                    </>
-                  )}
-                  <button
-                    onClick={() => handleEliminar(inf._id)}
-                    className="rounded-full bg-red-100 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-200"
-                  >
-                    Eliminar
-                  </button>
-                </div>
+
+                {/* QR del enlace directo de verificación de este certificado. */}
+                {qrVisibleId === inf._id && (
+                  <div className="mt-4 flex flex-col items-center gap-2 rounded-xl bg-gray-50 py-4">
+                    <QrBloque url={enlaceVerificacion(inf.numero)} numero={inf.numero} size={180} />
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -507,5 +536,65 @@ function Centrado({ children }) {
       </div>
       <Footer />
     </div>
+  )
+}
+
+/**
+ * Muestra el código QR de un enlace y permite descargarlo como PNG.
+ * El QR codifica el enlace directo de verificación (/?n=CODIGO); al
+ * escanearlo desde el teléfono, se abre y verifica el certificado.
+ */
+function QrBloque({ url, numero, size = 180 }) {
+  const [dataUrl, setDataUrl] = useState('')
+
+  useEffect(() => {
+    let activo = true
+    if (!url) {
+      setDataUrl('')
+      return
+    }
+    QRCode.toDataURL(url, { width: 512, margin: 1, errorCorrectionLevel: 'M' })
+      .then((u) => {
+        if (activo) setDataUrl(u)
+      })
+      .catch(() => {
+        if (activo) setDataUrl('')
+      })
+    return () => {
+      activo = false
+    }
+  }, [url])
+
+  function descargar() {
+    if (!dataUrl) return
+    const a = document.createElement('a')
+    a.href = dataUrl
+    a.download = `QR-${numero}.png`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  }
+
+  if (!dataUrl) {
+    return <p className="text-xs text-gray-400">Generando QR…</p>
+  }
+
+  return (
+    <>
+      <img
+        src={dataUrl}
+        alt={`Código QR del certificado ${numero}`}
+        width={size}
+        height={size}
+        className="rounded-lg border border-gray-200 bg-white p-2"
+      />
+      <button
+        type="button"
+        onClick={descargar}
+        className="rounded-full bg-ua-blue px-4 py-1.5 text-xs font-semibold text-white hover:bg-ua-blue-dark"
+      >
+        Descargar QR (PNG)
+      </button>
+    </>
   )
 }
