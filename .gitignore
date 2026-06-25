@@ -5,6 +5,7 @@ dist
 
 # Secretos / credenciales — NO subir al control de versiones
 cloudflare.txt
+GUIA-PRUEBAS.md
 .env
 .env.*
 .dev.vars

@@ -1,5 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { convex, convexHabilitado } from './convexClient'
+
+// Permite abrir un informe directamente vía enlace: /?n=INF-2026-XXXX
+function numeroDesdeURL() {
+  try {
+    return new URLSearchParams(window.location.search).get('n') || ''
+  } catch {
+    return ''
+  }
+}
 
 // Logo institucional de la Universidad de Antofagasta (servido desde /public).
 // El archivo original es azul; en el diseño se muestra blanco sobre el fondo
@@ -16,11 +25,13 @@ const PDF_DEMO_URL =
 
 export default function App() {
   // Estado del input "Número de Informe".
-  const [numeroInforme, setNumeroInforme] = useState('')
+  const [numeroInforme, setNumeroInforme] = useState(numeroDesdeURL)
   // Mensaje de error mostrado debajo del formulario.
   const [error, setError] = useState('')
   // Estado de carga mientras se "consulta" el informe.
   const [cargando, setCargando] = useState(false)
+  // Evita que la auto-búsqueda por enlace se dispare más de una vez.
+  const autoBuscado = useRef(false)
 
   /**
    * Busca el informe contra el backend de Convex.
@@ -62,11 +73,8 @@ export default function App() {
     // --- FIN FALLBACK ---
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault()
+  async function ejecutarBusqueda(numero, { nuevaPestana = true } = {}) {
     setError('')
-
-    const numero = numeroInforme.trim()
     if (!numero) {
       setError('Por favor ingresa un número de informe.')
       return
@@ -77,8 +85,14 @@ export default function App() {
       const urlPdf = await buscarInforme(numero)
 
       if (urlPdf) {
-        // El informe existe: abrir el PDF en una nueva pestaña.
-        window.open(urlPdf, '_blank', 'noopener,noreferrer')
+        if (nuevaPestana) {
+          // Acción iniciada por el usuario: abrir el PDF en una pestaña nueva.
+          window.open(urlPdf, '_blank', 'noopener,noreferrer')
+        } else {
+          // Auto-búsqueda por enlace: redirigir en la misma pestaña
+          // (evita el bloqueo de pop-ups al cargar la página).
+          window.location.assign(urlPdf)
+        }
       } else {
         setError('El informe no existe o el número es incorrecto.')
       }
@@ -89,6 +103,21 @@ export default function App() {
       setCargando(false)
     }
   }
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    ejecutarBusqueda(numeroInforme.trim(), { nuevaPestana: true })
+  }
+
+  // Auto-búsqueda cuando se llega vía enlace directo /?n=INF-2026-XXXX
+  useEffect(() => {
+    const n = numeroDesdeURL().trim()
+    if (n && !autoBuscado.current) {
+      autoBuscado.current = true
+      ejecutarBusqueda(n, { nuevaPestana: false })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="relative min-h-screen w-full overflow-hidden bg-ua-blue">
@@ -133,7 +162,7 @@ export default function App() {
               type="text"
               value={numeroInforme}
               onChange={(e) => setNumeroInforme(e.target.value)}
-              placeholder="INF-2024-001"
+              placeholder="INF-2026-XXXXXXXXXXXX"
               autoComplete="off"
               className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-800 placeholder-gray-400 outline-none transition focus:border-ua-cyan focus:ring-2 focus:ring-ua-cyan/40"
             />

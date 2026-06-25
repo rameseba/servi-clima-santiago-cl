@@ -2,11 +2,21 @@ import { query, mutation } from './_generated/server'
 import { v } from 'convex/values'
 
 /**
- * Busca un informe por su número.
+ * Resuelve la URL pública del PDF de un informe, ya sea un archivo subido
+ * (Convex File Storage) o una URL externa.
+ */
+async function resolverUrl(ctx, informe) {
+  if (informe.urlPdf) return informe.urlPdf
+  if (informe.storageId) return await ctx.storage.getUrl(informe.storageId)
+  return null
+}
+
+/**
+ * Busca un informe por su número (consulta PÚBLICA).
  * Devuelve la URL del PDF si existe, o null si no se encuentra.
  *
  * Se llama desde el frontend de forma imperativa:
- *   const r = await convex.query(api.informes.getByNumero, { numero })
+ *   const r = await convex.query('informes:getByNumero', { numero })
  */
 export const getByNumero = query({
   args: { numero: v.string() },
@@ -18,13 +28,16 @@ export const getByNumero = query({
 
     if (!informe) return null
 
-    return { urlPdf: informe.urlPdf, titulo: informe.titulo ?? null }
+    const urlPdf = await resolverUrl(ctx, informe)
+    if (!urlPdf) return null
+
+    return { urlPdf, titulo: informe.titulo ?? null }
   },
 })
 
 /**
- * Inserta o actualiza un informe (idempotente por número).
- * Útil para sembrar datos de prueba y para alta de informes desde el panel.
+ * Inserta o actualiza un informe por URL externa (idempotente por número).
+ * Útil para alta por CLI: npx convex run informes:upsert '{...}'
  */
 export const upsert = mutation({
   args: {
@@ -40,7 +53,7 @@ export const upsert = mutation({
       .unique()
 
     if (existente) {
-      await ctx.db.patch(existente._id, { urlPdf, titulo })
+      await ctx.db.patch(existente._id, { urlPdf, titulo, storageId: undefined })
       return existente._id
     }
     return await ctx.db.insert('informes', { numero: norm, urlPdf, titulo })
@@ -48,7 +61,7 @@ export const upsert = mutation({
 })
 
 /**
- * Siembra datos de prueba. Ejecutar una vez tras el primer deploy con:
+ * Siembra datos de prueba. Ejecutar una vez con:
  *   npx convex run informes:seed
  */
 export const seed = mutation({
