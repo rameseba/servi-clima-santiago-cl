@@ -74,10 +74,15 @@ export default function App() {
     // --- FIN FALLBACK ---
   }
 
-  async function ejecutarBusqueda(numero, { nuevaPestana = true } = {}) {
+  // `ventana` es una pestaña previamente abierta durante el gesto del usuario
+  // (para no ser bloqueada por el navegador). Si es null, se abre en la misma
+  // pestaña. Si el navegador la bloqueó (null tras intentar abrirla), también
+  // se cae a la misma pestaña.
+  async function ejecutarBusqueda(numero, ventana = null) {
     setError('')
     if (!numero) {
       setError('Por favor ingresa el número de certificado.')
+      if (ventana && !ventana.closed) ventana.close()
       return
     }
 
@@ -86,18 +91,19 @@ export default function App() {
       const urlPdf = await buscarInforme(numero)
 
       if (urlPdf) {
-        if (nuevaPestana) {
-          // Acción iniciada por el usuario: abrir el PDF en una pestaña nueva.
-          window.open(urlPdf, '_blank', 'noopener,noreferrer')
+        if (ventana && !ventana.closed) {
+          // Pestaña ya abierta en el gesto: solo le asignamos la URL.
+          ventana.location.href = urlPdf
         } else {
-          // Auto-búsqueda por enlace: redirigir en la misma pestaña
-          // (evita el bloqueo de pop-ups al cargar la página).
+          // Sin pestaña disponible (o bloqueada): abrir en la misma pestaña.
           window.location.assign(urlPdf)
         }
       } else {
+        if (ventana && !ventana.closed) ventana.close()
         setError('El certificado no existe o el número es incorrecto.')
       }
     } catch (err) {
+      if (ventana && !ventana.closed) ventana.close()
       console.error('Error al buscar el certificado:', err)
       setError('Ocurrió un error al buscar el certificado. Inténtalo nuevamente.')
     } finally {
@@ -107,15 +113,18 @@ export default function App() {
 
   function handleSubmit(e) {
     e.preventDefault()
-    ejecutarBusqueda(numeroInforme.trim(), { nuevaPestana: true })
+    // Abrimos la pestaña DURANTE el toque del usuario; así los móviles no la
+    // bloquean. La consulta (async) solo le asigna la URL después.
+    const ventana = window.open('', '_blank')
+    ejecutarBusqueda(numeroInforme.trim(), ventana)
   }
 
-  // Auto-búsqueda cuando se llega vía enlace directo /?n=INF-2026-XXXX
+  // Auto-búsqueda cuando se llega vía enlace directo /?n=CODIGO
   useEffect(() => {
     const n = numeroDesdeURL().trim()
     if (n && !autoBuscado.current) {
       autoBuscado.current = true
-      ejecutarBusqueda(n, { nuevaPestana: false })
+      ejecutarBusqueda(n, null) // sin gesto -> misma pestaña
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
