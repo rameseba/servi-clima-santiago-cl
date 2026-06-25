@@ -1,0 +1,13 @@
+node_modules
+dist
+.DS_Store
+*.local
+
+# Secretos / credenciales — NO subir al control de versiones
+cloudflare.txt
+.env
+.env.*
+.dev.vars
+
+# ...pero sí publicar la plantilla de variables (sin secretos)
+!.env.local.example
