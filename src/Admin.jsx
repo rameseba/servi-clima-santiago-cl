@@ -170,7 +170,11 @@ export default function Admin() {
         setGuardarComoDefault(false)
       }
 
-      setUltimoCreado({ numero: r.numero, url: enlaceVerificacion(r.numero) })
+      setUltimoCreado({
+        numero: r.numero,
+        titulo: titulo.trim(),
+        url: enlaceVerificacion(r.numero),
+      })
       setTitulo('')
       descartarArchivo()
       await cargarInformes(token)
@@ -446,7 +450,11 @@ export default function Admin() {
                 <p className="text-xs font-medium text-green-800">
                   Código QR para verificar desde el teléfono
                 </p>
-                <QrBloque url={ultimoCreado.url} numero={ultimoCreado.numero} size={180} />
+                <QrBloque
+                  url={ultimoCreado.url}
+                  numero={ultimoCreado.numero}
+                  titulo={ultimoCreado.titulo}
+                />
               </div>
             </div>
           )}
@@ -514,7 +522,11 @@ export default function Admin() {
                 {/* QR del enlace directo de verificación de este certificado. */}
                 {qrVisibleId === inf._id && (
                   <div className="mt-4 flex flex-col items-center gap-2 rounded-xl bg-gray-50 py-4">
-                    <QrBloque url={enlaceVerificacion(inf.numero)} numero={inf.numero} size={180} />
+                    <QrBloque
+                      url={enlaceVerificacion(inf.numero)}
+                      numero={inf.numero}
+                      titulo={inf.titulo}
+                    />
                   </div>
                 )}
               </li>
@@ -539,62 +551,239 @@ function Centrado({ children }) {
   )
 }
 
+// Carga una imagen y resuelve cuando está lista (para dibujar en canvas).
+function cargarImagen(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = src
+  })
+}
+
+// Parte un texto en líneas que quepan en maxWidth (máximo 3 líneas).
+function envolverTexto(ctx, texto, maxWidth) {
+  const palabras = String(texto).split(/\s+/)
+  const lineas = []
+  let linea = ''
+  for (const p of palabras) {
+    const test = linea ? linea + ' ' + p : p
+    if (ctx.measureText(test).width > maxWidth && linea) {
+      lineas.push(linea)
+      linea = p
+    } else {
+      linea = test
+    }
+  }
+  if (linea) lineas.push(linea)
+  return lineas.slice(0, 3)
+}
+
 /**
- * Muestra el código QR de un enlace y permite descargarlo como PNG.
- * El QR codifica el enlace directo de verificación (/?n=CODIGO); al
- * escanearlo desde el teléfono, se abre y verifica el certificado.
+ * Compone una tarjeta PNG "profesional" para el certificado: logo UA,
+ * el código QR del enlace de verificación, el N° del certificado y el
+ * nombre del archivo. Devuelve un Blob (image/png).
  */
-function QrBloque({ url, numero, size = 180 }) {
-  const [dataUrl, setDataUrl] = useState('')
+async function crearTarjetaQr({ numero, titulo, url }) {
+  const qrDataUrl = await QRCode.toDataURL(url, {
+    width: 600,
+    margin: 1,
+    errorCorrectionLevel: 'M',
+    color: { dark: '#13509e', light: '#ffffff' },
+  })
+  const [qrImg, logoImg] = await Promise.all([
+    cargarImagen(qrDataUrl),
+    cargarImagen(LOGO_UA).catch(() => null),
+  ])
+
+  let dominio = ''
+  try {
+    dominio = new URL(url).host
+  } catch {
+    /* sin dominio */
+  }
+
+  const W = 800
+  const pad = 56
+  const qr = 440
+  const lw = 190
+
+  const canvas = document.createElement('canvas')
+  const c0 = canvas.getContext('2d')
+  canvas.width = W
+  c0.font = '24px Arial, sans-serif'
+  const tituloLines = titulo ? envolverTexto(c0, titulo, W - 2 * pad) : []
+  const lh = logoImg ? Math.round((lw * logoImg.height) / logoImg.width) : 0
+
+  // Layout vertical (se calcula el alto según haya o no título).
+  let y = 38
+  const logoY = y
+  if (logoImg) y += lh + 24
+  const bannerY = y
+  y += 46
+  const qrY = y
+  y += qr + 30
+  const labelY = y
+  y += 32
+  const codigoY = y
+  y += 56
+  let tituloY = 0
+  if (tituloLines.length) {
+    tituloY = y
+    y += tituloLines.length * 34 + 10
+  }
+  const capY = y
+  y += 30
+  const domY = y
+  y += 28
+  const H = y + 34
+
+  canvas.height = H
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, W, H)
+  ctx.fillStyle = '#13509e'
+  ctx.fillRect(0, 0, W, 12)
+  ctx.strokeStyle = '#e5e7eb'
+  ctx.lineWidth = 2
+  ctx.strokeRect(1, 1, W - 2, H - 2)
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'top'
+  if (logoImg) ctx.drawImage(logoImg, (W - lw) / 2, logoY, lw, lh)
+  ctx.fillStyle = '#13509e'
+  ctx.font = 'bold 30px Arial, sans-serif'
+  ctx.fillText('VERIFICACIÓN DE CERTIFICADO', W / 2, bannerY)
+  ctx.drawImage(qrImg, (W - qr) / 2, qrY, qr, qr)
+  ctx.fillStyle = '#6b7280'
+  ctx.font = '600 22px Arial, sans-serif'
+  ctx.fillText('Certificado N°', W / 2, labelY)
+  ctx.fillStyle = '#13509e'
+  ctx.font = 'bold 38px "Courier New", monospace'
+  ctx.fillText(numero, W / 2, codigoY)
+  if (tituloLines.length) {
+    ctx.fillStyle = '#374151'
+    ctx.font = '24px Arial, sans-serif'
+    let ty = tituloY
+    for (const ln of tituloLines) {
+      ctx.fillText(ln, W / 2, ty)
+      ty += 34
+    }
+  }
+  ctx.fillStyle = '#6b7280'
+  ctx.font = '20px Arial, sans-serif'
+  ctx.fillText('Escanea el código para ver y verificar el certificado', W / 2, capY)
+  ctx.fillStyle = '#13509e'
+  ctx.font = '600 20px Arial, sans-serif'
+  ctx.fillText(dominio, W / 2, domY)
+
+  return await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
+}
+
+// Nombre de archivo seguro a partir del título y el código.
+function nombreTarjeta(numero, titulo) {
+  const base = (titulo || 'Certificado')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+  return `${base || 'Certificado'}-${numero}.png`
+}
+
+/**
+ * Muestra la tarjeta QR del certificado y permite descargarla o
+ * compartirla (Web Share API en celular; descarga como respaldo).
+ */
+function QrBloque({ url, numero, titulo }) {
+  const [cardUrl, setCardUrl] = useState('')
+  const [blob, setBlob] = useState(null)
+  const [puedeCompartir, setPuedeCompartir] = useState(false)
 
   useEffect(() => {
     let activo = true
-    if (!url) {
-      setDataUrl('')
-      return
-    }
-    QRCode.toDataURL(url, { width: 512, margin: 1, errorCorrectionLevel: 'M' })
-      .then((u) => {
-        if (activo) setDataUrl(u)
+    let urlCreada = ''
+    setCardUrl('')
+    setBlob(null)
+    if (!url) return
+    crearTarjetaQr({ numero, titulo, url })
+      .then((b) => {
+        if (!activo || !b) return
+        urlCreada = URL.createObjectURL(b)
+        setBlob(b)
+        setCardUrl(urlCreada)
+        try {
+          const f = new File([b], 'qr.png', { type: 'image/png' })
+          setPuedeCompartir(!!navigator.canShare && navigator.canShare({ files: [f] }))
+        } catch {
+          setPuedeCompartir(false)
+        }
       })
-      .catch(() => {
-        if (activo) setDataUrl('')
-      })
+      .catch(() => {})
     return () => {
       activo = false
+      if (urlCreada) URL.revokeObjectURL(urlCreada)
     }
-  }, [url])
+  }, [url, numero, titulo])
+
+  const nombre = nombreTarjeta(numero, titulo)
 
   function descargar() {
-    if (!dataUrl) return
+    if (!cardUrl) return
     const a = document.createElement('a')
-    a.href = dataUrl
-    a.download = `QR-${numero}.png`
+    a.href = cardUrl
+    a.download = nombre
     document.body.appendChild(a)
     a.click()
     a.remove()
   }
 
-  if (!dataUrl) {
+  async function compartir() {
+    if (!blob) return
+    const file = new File([blob], nombre, { type: 'image/png' })
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: `Certificado ${numero}`,
+          text: `Verifica el certificado ${numero}${titulo ? ' — ' + titulo : ''}`,
+        })
+      } else {
+        descargar()
+      }
+    } catch {
+      /* el usuario canceló el compartir */
+    }
+  }
+
+  if (!cardUrl) {
     return <p className="text-xs text-gray-400">Generando QR…</p>
   }
 
   return (
     <>
       <img
-        src={dataUrl}
-        alt={`Código QR del certificado ${numero}`}
-        width={size}
-        height={size}
-        className="rounded-lg border border-gray-200 bg-white p-2"
+        src={cardUrl}
+        alt={`Tarjeta QR del certificado ${numero}`}
+        className="w-full max-w-[240px] rounded-lg border border-gray-200 shadow-sm"
       />
-      <button
-        type="button"
-        onClick={descargar}
-        className="rounded-full bg-ua-blue px-4 py-1.5 text-xs font-semibold text-white hover:bg-ua-blue-dark"
-      >
-        Descargar QR (PNG)
-      </button>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        {puedeCompartir && (
+          <button
+            type="button"
+            onClick={compartir}
+            className="rounded-full bg-ua-cyan px-4 py-1.5 text-xs font-semibold text-white hover:bg-ua-cyan-dark"
+          >
+            Compartir QR
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={descargar}
+          className="rounded-full bg-ua-blue px-4 py-1.5 text-xs font-semibold text-white hover:bg-ua-blue-dark"
+        >
+          Descargar QR (PNG)
+        </button>
+      </div>
     </>
   )
 }
