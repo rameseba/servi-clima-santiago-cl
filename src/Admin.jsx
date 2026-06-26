@@ -24,8 +24,13 @@ export default function Admin() {
   const [ultimoCreado, setUltimoCreado] = useState(null) // { numero, url }
   const fileInputRef = useRef(null)
 
-  // Formato del código del certificado
+  // Número del certificado:
+  //   'alfanumerico' | 'numerico'  -> generado automáticamente (seguro)
+  //   'personalizado'              -> el admin escribe el número (numeroManual)
   const [formato, setFormato] = useState('alfanumerico') // selección actual
+  const [numeroManual, setNumeroManual] = useState('')
+  // Número detectado en el nombre del archivo (sugerencia para el admin).
+  const [sugerenciaNumero, setSugerenciaNumero] = useState('')
   const [guardarComoDefault, setGuardarComoDefault] = useState(false)
 
   // Listado
@@ -109,21 +114,36 @@ export default function Admin() {
   }
 
   // Selecciona un archivo (NO lo sube todavía: solo lo deja pendiente).
+  // Se aceptan PDF, imágenes y otros documentos. Al elegirlo, si el nombre del
+  // archivo contiene un número, se ofrece como sugerencia para el N° del
+  // certificado (ej. "Certificado 776892.pdf" -> 776892).
   function seleccionarArchivo(e) {
     setErrorSubida('')
     const f = e.target.files?.[0] ?? null
-    if (f && f.type !== 'application/pdf') {
-      setErrorSubida('El archivo debe ser un PDF.')
-      descartarArchivo()
-      return
-    }
     setArchivo(f)
+    const sug = f ? numeroDesdeNombre(f.name) : ''
+    // Si ya está en modo personalizado y aún no hay número, lo autocompleta.
+    if (sug && formato === 'personalizado' && !numeroManual.trim()) {
+      setNumeroManual(sug)
+      setSugerenciaNumero('')
+    } else {
+      setSugerenciaNumero(sug)
+    }
+  }
+
+  // Aplica la sugerencia: pasa a modo personalizado con el número detectado.
+  function usarSugerencia() {
+    if (!sugerenciaNumero) return
+    setFormato('personalizado')
+    setNumeroManual(sugerenciaNumero)
+    setSugerenciaNumero('')
   }
 
   // Descarta el archivo pendiente. Nada se sube ni se guarda en la base de datos.
   function descartarArchivo() {
     setArchivo(null)
     setErrorSubida('')
+    setSugerenciaNumero('')
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -133,11 +153,14 @@ export default function Admin() {
     setUltimoCreado(null)
 
     if (!archivo) {
-      setErrorSubida('Selecciona un archivo PDF.')
+      setErrorSubida('Selecciona un archivo.')
       return
     }
-    if (archivo.type !== 'application/pdf') {
-      setErrorSubida('El archivo debe ser un PDF.')
+
+    const esPersonalizado = formato === 'personalizado'
+    const numeroLimpio = numeroManual.trim()
+    if (esPersonalizado && !numeroLimpio) {
+      setErrorSubida('Escribe el número del certificado o elige otra opción.')
       return
     }
 
@@ -146,26 +169,31 @@ export default function Admin() {
       // 1) Pedir una URL de subida a Convex File Storage.
       const uploadUrl = await convex.mutation('admin:generateUploadUrl', { token })
 
-      // 2) Subir el archivo directamente a esa URL.
+      // 2) Subir el archivo directamente a esa URL. Usamos un content-type
+      //    fiable (algunos sistemas no reportan archivo.type) para que luego
+      //    el PDF/imagen se vea en línea correctamente.
       const res = await fetch(uploadUrl, {
         method: 'POST',
-        headers: { 'Content-Type': archivo.type },
+        headers: { 'Content-Type': tipoContenido(archivo) },
         body: archivo,
       })
       if (!res.ok) throw new Error('Falló la subida del archivo.')
       const { storageId } = await res.json()
 
-      // 3) Crear el certificado; el servidor genera el código seguro
-      //    según el formato elegido.
+      // 3) Crear el certificado. Si es personalizado se usa el número escrito;
+      //    si no, el servidor genera un código seguro según el formato.
       const r = await convex.mutation('admin:crearInforme', {
         token,
         storageId,
         titulo: titulo.trim() || undefined,
-        formato,
+        ...(esPersonalizado
+          ? { numero: numeroLimpio }
+          : { formato }),
       })
 
       // Si se marcó, deja este formato como predeterminado para los próximos.
-      if (guardarComoDefault) {
+      // (Solo aplica a los formatos generados automáticamente.)
+      if (guardarComoDefault && !esPersonalizado) {
         await convex.mutation('admin:setFormatoDefault', { token, formato })
         setGuardarComoDefault(false)
       }
@@ -176,6 +204,7 @@ export default function Admin() {
         url: enlaceVerificacion(r.numero),
       })
       setTitulo('')
+      setNumeroManual('')
       descartarArchivo()
       await cargarInformes(token)
     } catch (err) {
@@ -315,25 +344,30 @@ export default function Admin() {
           </div>
           <form onSubmit={handleSubida} className="px-6 py-6">
             <label className="mb-2 block text-sm font-medium text-gray-700">
-              Archivo PDF
+              Archivo (PDF, imagen u otro documento)
             </label>
             <input
               ref={fileInputRef}
               type="file"
-              accept="application/pdf"
               onChange={seleccionarArchivo}
-              className="mb-3 block w-full text-sm text-gray-600 file:mr-4 file:rounded-full file:border-0 file:bg-ua-cyan file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-ua-cyan-dark"
+              className="mb-1 block w-full text-sm text-gray-600 file:mr-4 file:rounded-full file:border-0 file:bg-ua-cyan file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-ua-cyan-dark"
             />
+            <p className="mb-3 text-xs text-gray-400">
+              PDF e imágenes (JPG, PNG) se ven en línea. Otros formatos (Word,
+              etc.) se podrán descargar.
+            </p>
 
             {/* Archivo pendiente: aún NO se ha subido ni guardado. */}
             {archivo && (
-              <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-ua-cyan/40 bg-ua-cyan/10 px-4 py-3">
+              <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-ua-cyan/40 bg-ua-cyan/10 px-4 py-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-gray-800">
-                    📄 {archivo.name}
+                    {iconoArchivo(archivo)} {archivo.name}
                   </p>
                   <p className="text-xs text-gray-500">
-                    {(archivo.size / 1024).toFixed(0)} KB · pendiente, sin guardar
+                    {(archivo.size / 1024).toFixed(0)} KB ·{' '}
+                    {esVisualizable(archivo) ? 'se verá en línea' : 'solo descarga'}{' '}
+                    · pendiente, sin guardar
                   </p>
                 </div>
                 <button
@@ -347,6 +381,35 @@ export default function Admin() {
                 </button>
               </div>
             )}
+
+            {/* Sugerencia: número detectado en el nombre del archivo. */}
+            {sugerenciaNumero && formato !== 'personalizado' && (
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+                <p className="text-sm text-amber-800">
+                  📌 Detectamos el número{' '}
+                  <code className="rounded bg-white px-2 py-0.5 font-mono font-bold text-ua-blue">
+                    {sugerenciaNumero}
+                  </code>{' '}
+                  en el nombre del archivo.
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={usarSugerencia}
+                    className="rounded-full bg-ua-cyan px-3 py-1.5 text-xs font-semibold text-white hover:bg-ua-cyan-dark"
+                  >
+                    Usar este número
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSugerenciaNumero('')}
+                    className="rounded-full bg-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-300"
+                  >
+                    Ignorar
+                  </button>
+                </div>
+              </div>
+            )}
             <label className="mb-2 block text-sm font-medium text-gray-700">
               Título (opcional)
             </label>
@@ -358,15 +421,15 @@ export default function Admin() {
               className="mb-4 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-800 outline-none focus:border-ua-cyan focus:ring-2 focus:ring-ua-cyan/40"
             />
 
-            {/* Formato del código del certificado (sin puntos ni guión) */}
+            {/* N° de certificado: generado (alfanumérico/numérico) o personalizado */}
             <label className="mb-2 block text-sm font-medium text-gray-700">
-              Formato del N° de certificado
+              N° de certificado
             </label>
-            <div className="mb-2 grid grid-cols-2 gap-2">
+            <div className="mb-2 grid grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() => setFormato('alfanumerico')}
-                className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                className={`rounded-lg border px-2 py-2 text-sm font-medium transition ${
                   formato === 'alfanumerico'
                     ? 'border-ua-cyan bg-ua-cyan/10 text-ua-blue'
                     : 'border-gray-300 text-gray-600 hover:bg-gray-50'
@@ -374,33 +437,64 @@ export default function Admin() {
               >
                 Alfanumérico
                 <span className="block text-[11px] font-normal text-gray-400">
-                  Ej: K7M2QX8ZP4T9
+                  K7M2QX8ZP4T9
                 </span>
               </button>
               <button
                 type="button"
                 onClick={() => setFormato('numerico')}
-                className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                className={`rounded-lg border px-2 py-2 text-sm font-medium transition ${
                   formato === 'numerico'
                     ? 'border-ua-cyan bg-ua-cyan/10 text-ua-blue'
                     : 'border-gray-300 text-gray-600 hover:bg-gray-50'
                 }`}
               >
-                Solo números
+                Numérico
                 <span className="block text-[11px] font-normal text-gray-400">
-                  Ej: 482913756204831
+                  482913756204831
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormato('personalizado')}
+                className={`rounded-lg border px-2 py-2 text-sm font-medium transition ${
+                  formato === 'personalizado'
+                    ? 'border-ua-cyan bg-ua-cyan/10 text-ua-blue'
+                    : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Personalizado
+                <span className="block text-[11px] font-normal text-gray-400">
+                  Tú lo eliges
                 </span>
               </button>
             </div>
-            <label className="mb-4 flex items-center gap-2 text-xs text-gray-600">
-              <input
-                type="checkbox"
-                checked={guardarComoDefault}
-                onChange={(e) => setGuardarComoDefault(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-ua-cyan focus:ring-ua-cyan"
-              />
-              Usar este formato como predeterminado de ahora en adelante
-            </label>
+
+            {formato === 'personalizado' ? (
+              <div className="mb-4">
+                <input
+                  type="text"
+                  value={numeroManual}
+                  onChange={(e) => setNumeroManual(e.target.value)}
+                  placeholder="Ej: 776892"
+                  className="w-full rounded-lg border border-gray-300 px-4 py-3 font-mono text-gray-800 outline-none focus:border-ua-cyan focus:ring-2 focus:ring-ua-cyan/40"
+                />
+                <p className="mt-1.5 text-xs text-gray-400">
+                  Letras, números y guiones (sin espacios). Debe ser único. Un
+                  número corto es más fácil de adivinar que un código generado.
+                </p>
+              </div>
+            ) : (
+              <label className="mb-4 flex items-center gap-2 text-xs text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={guardarComoDefault}
+                  onChange={(e) => setGuardarComoDefault(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-ua-cyan focus:ring-ua-cyan"
+                />
+                Usar este formato como predeterminado de ahora en adelante
+              </label>
+            )}
 
             <button
               type="submit"
@@ -538,6 +632,45 @@ export default function Admin() {
       </div>
     </div>
   )
+}
+
+// Extrae un posible número de certificado del nombre de un archivo.
+// Toma la secuencia de dígitos más larga (>= 5) para evitar falsos positivos
+// como años o fechas. Ej: "Certificado 776892.pdf" -> "776892".
+function numeroDesdeNombre(nombre) {
+  const base = String(nombre).replace(/\.[^.]+$/, '') // sin extensión
+  const runs = base.match(/\d+/g) || []
+  let mejor = ''
+  for (const r of runs) if (r.length > mejor.length) mejor = r
+  return mejor.length >= 5 ? mejor : ''
+}
+
+// Devuelve un content-type fiable para subir el archivo. Algunos sistemas no
+// reportan archivo.type (queda ""), así que se deduce por la extensión. Esto
+// asegura que el PDF/imagen se sirva con el tipo correcto y se vea en línea.
+function tipoContenido(f) {
+  if (f.type) return f.type
+  const n = f.name.toLowerCase()
+  if (n.endsWith('.pdf')) return 'application/pdf'
+  if (n.endsWith('.png')) return 'image/png'
+  if (n.endsWith('.webp')) return 'image/webp'
+  if (n.endsWith('.gif')) return 'image/gif'
+  if (n.endsWith('.jpg') || n.endsWith('.jpeg')) return 'image/jpeg'
+  return 'application/octet-stream'
+}
+
+// ¿El archivo se puede ver en línea (PDF o imagen) o solo descargar?
+function esVisualizable(f) {
+  const t = tipoContenido(f)
+  return t === 'application/pdf' || t.startsWith('image/')
+}
+
+// Ícono según el tipo de archivo.
+function iconoArchivo(f) {
+  const t = tipoContenido(f)
+  if (t.startsWith('image/')) return '🖼️'
+  if (t === 'application/pdf') return '📄'
+  return '📎'
 }
 
 function Centrado({ children }) {

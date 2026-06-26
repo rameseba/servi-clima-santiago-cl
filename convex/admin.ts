@@ -122,27 +122,62 @@ export const generateUploadUrl = mutation({
 })
 
 /**
- * Crea un informe asociándole un PDF subido (storageId).
- * El número de informe se GENERA AUTOMÁTICAMENTE en el servidor de forma
- * segura (ver generarNumeroSeguro). El cliente NO lo elige ni lo conoce de
- * antemano. Se devuelve el número generado para que el admin lo comparta.
+ * Crea un informe asociándole un archivo subido (storageId).
+ *
+ * El número del certificado puede:
+ *   - VENIR DADO por el admin ('personalizado'): se usa tal cual (normalizado
+ *     a mayúsculas). Útil para conservar el número impreso en el documento
+ *     (ej. 776892). Atención: un número corto y predecible es más fácil de
+ *     adivinar que un código generado; queda a criterio del admin.
+ *   - GENERARSE AUTOMÁTICAMENTE de forma segura ('alfanumerico'/'numerico'),
+ *     como código no adivinable que actúa como clave de acceso.
+ *
+ * Se devuelve el número resultante para que el admin lo comparta.
  */
 export const crearInforme = mutation({
   args: {
     token: v.string(),
     storageId: v.id('_storage'),
     titulo: v.optional(v.string()),
+    // Número personalizado elegido por el admin. Si se indica, tiene prioridad
+    // sobre la generación automática.
+    numero: v.optional(v.string()),
     formato: v.optional(
       v.union(v.literal('alfanumerico'), v.literal('numerico')),
     ),
   },
-  handler: async (ctx, { token, storageId, titulo, formato }) => {
+  handler: async (ctx, { token, storageId, titulo, numero, formato }) => {
     await requireSesion(ctx, token)
 
+    // --- Número personalizado (tiene prioridad) ---
+    const personalizado = numero?.trim().toUpperCase()
+    if (personalizado) {
+      // Permite letras, números y guiones (sin espacios ni puntos), 3 a 40.
+      if (!/^[A-Z0-9-]{3,40}$/.test(personalizado)) {
+        throw new Error(
+          'El número solo puede tener letras, números y guiones (3 a 40 caracteres, sin espacios).',
+        )
+      }
+      const choque = await ctx.db
+        .query('informes')
+        .withIndex('by_numero', (q) => q.eq('numero', personalizado))
+        .unique()
+      if (choque) {
+        throw new Error('Ya existe un certificado con ese número. Elige otro.')
+      }
+      const id = await ctx.db.insert('informes', {
+        numero: personalizado,
+        storageId,
+        titulo,
+      })
+      return { id, numero: personalizado }
+    }
+
+    // --- Número generado automáticamente (seguro) ---
     const fmt = formato ?? (await leerFormatoDefault(ctx))
 
     // Genera un código único (reintenta ante una colisión, muy improbable).
-    let numero = null
+    let generado = null
     for (let i = 0; i < 6; i++) {
       const candidato = generarCodigoSeguro(fmt)
       const choque = await ctx.db
@@ -150,16 +185,20 @@ export const crearInforme = mutation({
         .withIndex('by_numero', (q) => q.eq('numero', candidato))
         .unique()
       if (!choque) {
-        numero = candidato
+        generado = candidato
         break
       }
     }
-    if (!numero) {
+    if (!generado) {
       throw new Error('No se pudo generar un código único. Inténtalo de nuevo.')
     }
 
-    const id = await ctx.db.insert('informes', { numero, storageId, titulo })
-    return { id, numero }
+    const id = await ctx.db.insert('informes', {
+      numero: generado,
+      storageId,
+      titulo,
+    })
+    return { id, numero: generado }
   },
 })
 
