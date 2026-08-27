@@ -5,13 +5,19 @@ import { v } from 'convex/values'
 export default defineSchema({
   informes: defineTable({
     numero: v.string(), // Ej: "INF-2024-001" (se almacena en mayúsculas)
+    // Mismo número sin guiones/espacios/puntos: es la clave con la que se
+    // busca, para que "77689-2" y "776892" encuentren el mismo certificado.
+    // Opcional porque los registros antiguos aún no lo tienen (ver
+    // informes:backfillNumeroNorm).
+    numeroNorm: v.optional(v.string()),
     // El PDF puede venir de un archivo subido (storageId) o de una URL externa.
     storageId: v.optional(v.id('_storage')),
     urlPdf: v.optional(v.string()),
     titulo: v.optional(v.string()), // Título descriptivo opcional
   })
     // Índice para buscar un informe por su número de forma eficiente.
-    .index('by_numero', ['numero']),
+    .index('by_numero', ['numero'])
+    .index('by_numeroNorm', ['numeroNorm']),
 
   // Sesiones del panel admin (login con contraseña única compartida).
   sessions: defineTable({

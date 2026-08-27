@@ -10,6 +10,7 @@
 
 import type * as admin from "../admin.js";
 import type * as informes from "../informes.js";
+import type * as lib from "../lib.js";
 
 import type {
   ApiFromModules,
@@ -20,6 +21,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   informes: typeof informes;
+  lib: typeof lib;
 }>;
 
 /**

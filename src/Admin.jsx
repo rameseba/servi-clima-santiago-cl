@@ -635,14 +635,18 @@ export default function Admin() {
 }
 
 // Extrae un posible número de certificado del nombre de un archivo.
-// Toma la secuencia de dígitos más larga (>= 5) para evitar falsos positivos
-// como años o fechas. Ej: "Certificado 776892.pdf" -> "776892".
+// Conserva los guiones interiores, porque forman parte del número impreso en
+// el documento ("Certificado 77689-2.pdf" -> "77689-2"). Se elige la secuencia
+// con más dígitos (>= 5) para evitar falsos positivos como años o fechas.
+// La búsqueda ignora los guiones de todos modos (ver convex/lib.js), así que
+// conservarlos sólo mejora lo que se muestra e imprime.
 function numeroDesdeNombre(nombre) {
   const base = String(nombre).replace(/\.[^.]+$/, '') // sin extensión
-  const runs = base.match(/\d+/g) || []
+  const runs = base.match(/\d+(?:-\d+)*/g) || []
+  const digitos = (r) => r.replace(/-/g, '').length
   let mejor = ''
-  for (const r of runs) if (r.length > mejor.length) mejor = r
-  return mejor.length >= 5 ? mejor : ''
+  for (const r of runs) if (digitos(r) > digitos(mejor)) mejor = r
+  return digitos(mejor) >= 5 ? mejor : ''
 }
 
 // Devuelve un content-type fiable para subir el archivo. Algunos sistemas no

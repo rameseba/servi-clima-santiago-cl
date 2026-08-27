@@ -1,5 +1,6 @@
 import { query, mutation } from './_generated/server'
 import { v } from 'convex/values'
+import { normalizarNumero } from './lib.js'
 
 /**
  * Resuelve la URL pública del PDF de un informe, ya sea un archivo subido
@@ -12,6 +13,43 @@ async function resolverUrl(ctx, informe) {
 }
 
 /**
+ * Busca un informe aceptando el número tal como está impreso en el documento.
+ *
+ * Primero intenta la coincidencia exacta (mayúsculas) y, si no la hay, busca
+ * por el número normalizado (sin guiones, espacios ni puntos). Así "77689-2"
+ * encuentra el certificado guardado como "776892" y viceversa.
+ *
+ * El recorrido final sólo se usa para los registros antiguos que todavía no
+ * tienen `numeroNorm`; una vez ejecutado informes:backfillNumeroNorm deja de
+ * hacer falta.
+ */
+async function buscarPorNumero(ctx, numero) {
+  const exacto = String(numero ?? '').trim().toUpperCase()
+  if (exacto) {
+    const porNumero = await ctx.db
+      .query('informes')
+      .withIndex('by_numero', (q) => q.eq('numero', exacto))
+      .unique()
+    if (porNumero) return porNumero
+  }
+
+  const norm = normalizarNumero(numero)
+  if (!norm) return null
+
+  const porNorm = await ctx.db
+    .query('informes')
+    .withIndex('by_numeroNorm', (q) => q.eq('numeroNorm', norm))
+    .unique()
+  if (porNorm) return porNorm
+
+  const antiguos = await ctx.db
+    .query('informes')
+    .withIndex('by_numeroNorm', (q) => q.eq('numeroNorm', undefined))
+    .collect()
+  return antiguos.find((i) => normalizarNumero(i.numero) === norm) ?? null
+}
+
+/**
  * Busca un informe por su número (consulta PÚBLICA).
  * Devuelve la URL del PDF si existe, o null si no se encuentra.
  *
@@ -21,10 +59,7 @@ async function resolverUrl(ctx, informe) {
 export const getByNumero = query({
   args: { numero: v.string() },
   handler: async (ctx, { numero }) => {
-    const informe = await ctx.db
-      .query('informes')
-      .withIndex('by_numero', (q) => q.eq('numero', numero.trim().toUpperCase()))
-      .unique()
+    const informe = await buscarPorNumero(ctx, numero)
 
     if (!informe) return null
 
@@ -47,16 +82,18 @@ export const upsert = mutation({
   },
   handler: async (ctx, { numero, urlPdf, titulo }) => {
     const norm = numero.trim().toUpperCase()
-    const existente = await ctx.db
-      .query('informes')
-      .withIndex('by_numero', (q) => q.eq('numero', norm))
-      .unique()
+    const existente = await buscarPorNumero(ctx, norm)
 
     if (existente) {
       await ctx.db.patch(existente._id, { urlPdf, titulo, storageId: undefined })
       return existente._id
     }
-    return await ctx.db.insert('informes', { numero: norm, urlPdf, titulo })
+    return await ctx.db.insert('informes', {
+      numero: norm,
+      numeroNorm: normalizarNumero(norm),
+      urlPdf,
+      titulo,
+    })
   },
 })
 
@@ -84,5 +121,27 @@ export const seed = mutation({
       if (!existente) await ctx.db.insert('informes', d)
     }
     return { ok: true, insertados: demo.length }
+  },
+})
+
+/**
+ * Rellena `numeroNorm` en los certificados creados antes de que existiera el
+ * campo. Es idempotente: ejecutar de nuevo no cambia nada.
+ *
+ *   npx convex run informes:backfillNumeroNorm
+ */
+export const backfillNumeroNorm = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const todos = await ctx.db.query('informes').collect()
+    let actualizados = 0
+    for (const i of todos) {
+      const norm = normalizarNumero(i.numero)
+      if (i.numeroNorm !== norm) {
+        await ctx.db.patch(i._id, { numeroNorm: norm })
+        actualizados++
+      }
+    }
+    return { total: todos.length, actualizados }
   },
 })

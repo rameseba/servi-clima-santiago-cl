@@ -1,5 +1,6 @@
 import { mutation, query } from './_generated/server'
 import { v } from 'convex/values'
+import { normalizarNumero } from './lib.js'
 
 const SESION_MS = 1000 * 60 * 60 * 8 // 8 horas
 
@@ -122,6 +123,25 @@ export const generateUploadUrl = mutation({
 })
 
 /**
+ * Indica si ya existe un certificado cuyo número, normalizado, es el mismo.
+ * Cubre también los registros antiguos que aún no tienen `numeroNorm`
+ * (ver informes:backfillNumeroNorm).
+ */
+async function existePorNorm(ctx, norm) {
+  const directo = await ctx.db
+    .query('informes')
+    .withIndex('by_numeroNorm', (q) => q.eq('numeroNorm', norm))
+    .unique()
+  if (directo) return true
+
+  const antiguos = await ctx.db
+    .query('informes')
+    .withIndex('by_numeroNorm', (q) => q.eq('numeroNorm', undefined))
+    .collect()
+  return antiguos.some((i) => normalizarNumero(i.numero) === norm)
+}
+
+/**
  * Crea un informe asociándole un archivo subido (storageId).
  *
  * El número del certificado puede:
@@ -158,15 +178,17 @@ export const crearInforme = mutation({
           'El número solo puede tener letras, números y guiones (3 a 40 caracteres, sin espacios).',
         )
       }
-      const choque = await ctx.db
-        .query('informes')
-        .withIndex('by_numero', (q) => q.eq('numero', personalizado))
-        .unique()
+      // El choque se comprueba sobre el número normalizado: "77689-2" y
+      // "776892" son el mismo certificado para quien lo busca, así que no se
+      // permite crear ambos.
+      const normPersonalizado = normalizarNumero(personalizado)
+      const choque = await existePorNorm(ctx, normPersonalizado)
       if (choque) {
         throw new Error('Ya existe un certificado con ese número. Elige otro.')
       }
       const id = await ctx.db.insert('informes', {
         numero: personalizado,
+        numeroNorm: normPersonalizado,
         storageId,
         titulo,
       })
@@ -180,10 +202,7 @@ export const crearInforme = mutation({
     let generado = null
     for (let i = 0; i < 6; i++) {
       const candidato = generarCodigoSeguro(fmt)
-      const choque = await ctx.db
-        .query('informes')
-        .withIndex('by_numero', (q) => q.eq('numero', candidato))
-        .unique()
+      const choque = await existePorNorm(ctx, normalizarNumero(candidato))
       if (!choque) {
         generado = candidato
         break
@@ -195,6 +214,7 @@ export const crearInforme = mutation({
 
     const id = await ctx.db.insert('informes', {
       numero: generado,
+      numeroNorm: normalizarNumero(generado),
       storageId,
       titulo,
     })
