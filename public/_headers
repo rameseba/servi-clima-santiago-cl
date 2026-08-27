@@ -1,0 +1,17 @@
+# Cabeceras de seguridad para Cloudflare Pages.
+# Cloudflare las aplica a las respuestas del sitio; el archivo se copia tal cual
+# a dist/ durante el build de Vite.
+/*
+  # Impide que el sitio se muestre dentro de un iframe ajeno (evita que alguien
+  # incruste el verificador en otra página y lo haga pasar por suyo).
+  X-Frame-Options: DENY
+  # El navegador respeta el tipo de contenido declarado y no lo adivina.
+  X-Content-Type-Options: nosniff
+  # No se filtra el número de certificado consultado a sitios de terceros.
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=(), interest-cohort=()
+  # Sólo se cargan recursos del propio sitio; las consultas salen únicamente
+  # hacia Convex (el backend). 'unsafe-inline' en estilos lo necesita Tailwind
+  # para los estilos calculados en línea. data:/blob: son para el QR, que se
+  # genera en el navegador con canvas.
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://*.convex.cloud; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
