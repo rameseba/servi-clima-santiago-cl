@@ -6,6 +6,19 @@ import Footer from './Footer.jsx'
 const LOGO_UA = '/logo-ua.png'
 const TOKEN_KEY = 'ua_admin_token'
 
+/**
+ * Texto legible de un error devuelto por Convex.
+ *
+ * Convex sólo deja pasar íntegro el mensaje de un ConvexError, y lo entrega en
+ * `err.data` (NO en `err.message`, que llega como "[Request ID: …] Server
+ * Error"). Si no es un ConvexError, se usa el texto de reserva.
+ */
+function mensajeDeError(err, porDefecto) {
+  const d = err?.data
+  if (typeof d === 'string' && d.trim()) return d
+  return porDefecto
+}
+
 export default function Admin() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || '')
   const [autenticado, setAutenticado] = useState(false)
@@ -96,7 +109,12 @@ export default function Admin() {
       }
     } catch (err) {
       console.error(err)
-      setErrorLogin('No se pudo iniciar sesión. Inténtalo nuevamente.')
+      // Aquí llega, entre otros, el aviso de bloqueo por intentos fallidos:
+      // hay que mostrar su texto, no uno genérico, o el usuario no entiende
+      // por qué de pronto no puede entrar.
+      setErrorLogin(
+        mensajeDeError(err, 'No se pudo iniciar sesión. Inténtalo nuevamente.'),
+      )
     }
   }
 
@@ -209,7 +227,9 @@ export default function Admin() {
       await cargarInformes(token)
     } catch (err) {
       console.error(err)
-      setErrorSubida(err.message || 'Ocurrió un error al subir el certificado.')
+      setErrorSubida(
+        mensajeDeError(err, 'Ocurrió un error al subir el certificado.'),
+      )
     } finally {
       setSubiendo(false)
     }
@@ -239,7 +259,7 @@ export default function Admin() {
       )
     } catch (err) {
       console.error(err)
-      alert(err?.message || 'No se pudo cambiar el número.')
+      alert(mensajeDeError(err, 'No se pudo cambiar el número.'))
     }
   }
 

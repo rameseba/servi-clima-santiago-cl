@@ -1,5 +1,5 @@
 import { mutation, query } from './_generated/server'
-import { v } from 'convex/values'
+import { v, ConvexError } from 'convex/values'
 import { normalizarNumero } from './lib.js'
 
 const SESION_MS = 1000 * 60 * 60 * 8 // 8 horas
@@ -76,7 +76,7 @@ async function requireSesion(ctx, token) {
     .withIndex('by_token', (q) => q.eq('token', token))
     .unique()
   if (!s || s.expiraEn < Date.now()) {
-    throw new Error('No autorizado. Inicia sesión nuevamente.')
+    throw new ConvexError('No autorizado. Inicia sesión nuevamente.')
   }
 }
 
@@ -92,7 +92,7 @@ export const login = mutation({
     const U = process.env.ADMIN_USER
     const P = process.env.ADMIN_PASSWORD
     if (!U || !P) {
-      throw new Error('Panel admin no configurado (faltan ADMIN_USER/ADMIN_PASSWORD).')
+      throw new ConvexError('Panel admin no configurado (faltan ADMIN_USER/ADMIN_PASSWORD).')
     }
 
     const clave = usuario.trim().toLowerCase()
@@ -104,8 +104,13 @@ export const login = mutation({
     const ahora = Date.now()
     if (registro && registro.bloqueadoHasta > ahora) {
       const minutos = Math.ceil((registro.bloqueadoHasta - ahora) / 60000)
-      throw new Error(
-        `Demasiados intentos fallidos. Vuelve a intentarlo en ${minutos} minuto(s).`,
+      // ConvexError (y no Error a secas) porque es el único tipo cuyo mensaje
+      // llega íntegro al navegador: los demás se sustituyen por "Server Error".
+      throw new ConvexError(
+        `Acceso bloqueado temporalmente: se escribió la contraseña incorrecta ` +
+          `${registro.fallos} veces. Puede haber sido usted u otra persona. ` +
+          `Por seguridad, vuelva a intentarlo en ${minutos} ` +
+          `${minutos === 1 ? 'minuto' : 'minutos'}.`,
       )
     }
 
@@ -219,7 +224,7 @@ export const crearInforme = mutation({
     if (personalizado) {
       // Permite letras, números y guiones (sin espacios ni puntos), 3 a 40.
       if (!/^[A-Z0-9-]{3,40}$/.test(personalizado)) {
-        throw new Error(
+        throw new ConvexError(
           'El número solo puede tener letras, números y guiones (3 a 40 caracteres, sin espacios).',
         )
       }
@@ -229,7 +234,7 @@ export const crearInforme = mutation({
       const normPersonalizado = normalizarNumero(personalizado)
       const choque = await existePorNorm(ctx, normPersonalizado)
       if (choque) {
-        throw new Error('Ya existe un certificado con ese número. Elige otro.')
+        throw new ConvexError('Ya existe un certificado con ese número. Elige otro.')
       }
       const id = await ctx.db.insert('informes', {
         numero: personalizado,
@@ -254,7 +259,7 @@ export const crearInforme = mutation({
       }
     }
     if (!generado) {
-      throw new Error('No se pudo generar un código único. Inténtalo de nuevo.')
+      throw new ConvexError('No se pudo generar un código único. Inténtalo de nuevo.')
     }
 
     const id = await ctx.db.insert('informes', {
@@ -331,19 +336,19 @@ export const cambiarNumero = mutation({
 
     const nuevo = numero.trim().toUpperCase()
     if (!/^[A-Z0-9-]{3,40}$/.test(nuevo)) {
-      throw new Error(
+      throw new ConvexError(
         'El número solo puede tener letras, números y guiones (3 a 40 caracteres, sin espacios).',
       )
     }
 
     const inf = await ctx.db.get(id)
-    if (!inf) throw new Error('El certificado ya no existe.')
+    if (!inf) throw new ConvexError('El certificado ya no existe.')
 
     const norm = normalizarNumero(nuevo)
     // Sólo es choque si pertenece a OTRO certificado; renumerar al mismo valor
     // (o cambiar sólo los guiones) debe permitirse.
     if (norm !== normalizarNumero(inf.numero) && (await existePorNorm(ctx, norm))) {
-      throw new Error('Ya existe otro certificado con ese número. Elige otro.')
+      throw new ConvexError('Ya existe otro certificado con ese número. Elige otro.')
     }
 
     await ctx.db.patch(id, { numero: nuevo, numeroNorm: norm })

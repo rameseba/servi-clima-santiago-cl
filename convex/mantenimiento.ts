@@ -57,3 +57,23 @@ export const borrarPorNumero = internalMutation({
     return { borrado: true, numero: inf.numero }
   },
 })
+
+/**
+ * Levanta el bloqueo por intentos fallidos del panel, sin esperar:
+ *
+ *   npx convex run mantenimiento:desbloquearAcceso '{"usuario":"admin"}'
+ *
+ * Sin argumento levanta el bloqueo de todos los usuarios. internalMutation:
+ * no invocable desde el navegador (si no, el bloqueo no serviría de nada).
+ */
+export const desbloquearAcceso = internalMutation({
+  args: { usuario: v.optional(v.string()) },
+  handler: async (ctx, { usuario }) => {
+    const clave = usuario?.trim().toLowerCase()
+    const registros = await ctx.db.query('intentosLogin').collect()
+    const objetivo = clave ? registros.filter((r) => r.clave === clave) : registros
+
+    for (const r of objetivo) await ctx.db.delete(r._id)
+    return { desbloqueados: objetivo.map((r) => r.clave) }
+  },
+})
