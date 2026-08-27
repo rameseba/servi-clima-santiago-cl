@@ -269,6 +269,43 @@ export const listInformes = query({
   },
 })
 
+/**
+ * Cambia el número de un certificado ya creado, conservando el archivo.
+ *
+ * Hace falta cuando el número quedó mal escrito (por ejemplo, tomado del
+ * nombre del archivo) y el documento impreso lleva otro: sin esto había que
+ * borrar el certificado y volver a subirlo.
+ *
+ * El QR y el enlace de verificación usan el número, así que al cambiarlo hay
+ * que volver a generar el QR del certificado.
+ */
+export const cambiarNumero = mutation({
+  args: { token: v.string(), id: v.id('informes'), numero: v.string() },
+  handler: async (ctx, { token, id, numero }) => {
+    await requireSesion(ctx, token)
+
+    const nuevo = numero.trim().toUpperCase()
+    if (!/^[A-Z0-9-]{3,40}$/.test(nuevo)) {
+      throw new Error(
+        'El número solo puede tener letras, números y guiones (3 a 40 caracteres, sin espacios).',
+      )
+    }
+
+    const inf = await ctx.db.get(id)
+    if (!inf) throw new Error('El certificado ya no existe.')
+
+    const norm = normalizarNumero(nuevo)
+    // Sólo es choque si pertenece a OTRO certificado; renumerar al mismo valor
+    // (o cambiar sólo los guiones) debe permitirse.
+    if (norm !== normalizarNumero(inf.numero) && (await existePorNorm(ctx, norm))) {
+      throw new Error('Ya existe otro certificado con ese número. Elige otro.')
+    }
+
+    await ctx.db.patch(id, { numero: nuevo, numeroNorm: norm })
+    return { ok: true, numero: nuevo }
+  },
+})
+
 /** Elimina un informe (y su archivo en storage, si lo tiene). */
 export const eliminarInforme = mutation({
   args: { token: v.string(), id: v.id('informes') },

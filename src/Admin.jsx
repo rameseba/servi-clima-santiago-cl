@@ -215,6 +215,34 @@ export default function Admin() {
     }
   }
 
+  // Corrige el número de un certificado ya subido. Es habitual: el número se
+  // sugiere desde el nombre del archivo y puede no coincidir con el impreso en
+  // el documento. Al cambiarlo, el QR anterior deja de servir.
+  async function handleRenumerar(inf) {
+    const nuevo = prompt(
+      'Nuevo número del certificado (tal como aparece impreso en el documento):',
+      inf.numero,
+    )
+    if (nuevo === null) return
+    const limpio = nuevo.trim()
+    if (!limpio || limpio.toUpperCase() === inf.numero.toUpperCase()) return
+
+    try {
+      await convex.mutation('admin:cambiarNumero', {
+        token,
+        id: inf._id,
+        numero: limpio,
+      })
+      await cargarInformes(token)
+      alert(
+        'Número actualizado. Vuelve a generar el QR de este certificado: el anterior ya no sirve.',
+      )
+    } catch (err) {
+      console.error(err)
+      alert(err?.message || 'No se pudo cambiar el número.')
+    }
+  }
+
   async function handleEliminar(id) {
     if (!confirm('¿Eliminar este certificado? Esta acción no se puede deshacer.')) return
     try {
@@ -603,6 +631,12 @@ export default function Admin() {
                       className="rounded-full bg-ua-blue/10 px-3 py-1.5 text-xs font-semibold text-ua-blue hover:bg-ua-blue/20"
                     >
                       {qrVisibleId === inf._id ? 'Ocultar QR' : 'QR'}
+                    </button>
+                    <button
+                      onClick={() => handleRenumerar(inf)}
+                      className="rounded-full bg-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-300"
+                    >
+                      Editar N°
                     </button>
                     <button
                       onClick={() => handleEliminar(inf._id)}
