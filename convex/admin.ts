@@ -55,6 +55,20 @@ async function leerFormatoDefault(ctx) {
   return c?.valor === 'numerico' ? 'numerico' : FORMATO_DEFECTO
 }
 
+// Nº de intentos fallidos permitidos antes de empezar a bloquear, y tope de
+// espera. El bloqueo crece: 1, 2, 4, 8… minutos, hasta el máximo.
+const INTENTOS_ANTES_DE_BLOQUEAR = 5
+const BLOQUEO_MAX_MS = 15 * 60 * 1000
+
+// Borra las sesiones ya expiradas para que la tabla no crezca sin límite.
+async function limpiarSesionesCaducadas(ctx) {
+  const ahora = Date.now()
+  const viejas = await ctx.db.query('sessions').collect()
+  for (const s of viejas) {
+    if (s.expiraEn < ahora) await ctx.db.delete(s._id)
+  }
+}
+
 // Valida un token de sesión; lanza si no es válido o expiró.
 async function requireSesion(ctx, token) {
   const s = await ctx.db
@@ -80,11 +94,42 @@ export const login = mutation({
     if (!U || !P) {
       throw new Error('Panel admin no configurado (faltan ADMIN_USER/ADMIN_PASSWORD).')
     }
+
+    const clave = usuario.trim().toLowerCase()
+    const registro = await ctx.db
+      .query('intentosLogin')
+      .withIndex('by_clave', (q) => q.eq('clave', clave))
+      .unique()
+
+    const ahora = Date.now()
+    if (registro && registro.bloqueadoHasta > ahora) {
+      const minutos = Math.ceil((registro.bloqueadoHasta - ahora) / 60000)
+      throw new Error(
+        `Demasiados intentos fallidos. Vuelve a intentarlo en ${minutos} minuto(s).`,
+      )
+    }
+
     if (usuario !== U || password !== P) {
+      const fallos = (registro?.fallos ?? 0) + 1
+      // A partir del 5º fallo se bloquea con espera creciente, hasta 15 min.
+      const bloqueadoHasta =
+        fallos >= INTENTOS_ANTES_DE_BLOQUEAR
+          ? ahora + Math.min(2 ** (fallos - INTENTOS_ANTES_DE_BLOQUEAR) * 60_000, BLOQUEO_MAX_MS)
+          : 0
+      if (registro) {
+        await ctx.db.patch(registro._id, { fallos, bloqueadoHasta })
+      } else {
+        await ctx.db.insert('intentosLogin', { clave, fallos, bloqueadoHasta })
+      }
       return { ok: false }
     }
+
+    // Login correcto: se reinicia el contador y se limpian sesiones caducadas.
+    if (registro) await ctx.db.patch(registro._id, { fallos: 0, bloqueadoHasta: 0 })
+    await limpiarSesionesCaducadas(ctx)
+
     const token = nuevoToken()
-    await ctx.db.insert('sessions', { token, expiraEn: Date.now() + SESION_MS })
+    await ctx.db.insert('sessions', { token, expiraEn: ahora + SESION_MS })
     return { ok: true, token }
   },
 })

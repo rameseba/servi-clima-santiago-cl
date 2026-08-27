@@ -25,6 +25,14 @@ export default defineSchema({
     expiraEn: v.number(), // timestamp ms de expiración
   }).index('by_token', ['token']),
 
+  // Intentos fallidos de login, para frenar la fuerza bruta contra la
+  // contraseña del panel (que es única y compartida).
+  intentosLogin: defineTable({
+    clave: v.string(), // usuario contra el que se intenta entrar
+    fallos: v.number(),
+    bloqueadoHasta: v.number(), // timestamp ms; 0 = sin bloqueo
+  }).index('by_clave', ['clave']),
+
   // Configuración del panel (singleton por clave). Ej: formato por defecto.
   config: defineTable({
     clave: v.string(), // 'formatoDefault'

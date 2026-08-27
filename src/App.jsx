@@ -16,13 +16,6 @@ function numeroDesdeURL() {
 // azul, por lo que se "blanquea" con un filtro CSS (brightness(0) invert(1)).
 const LOGO_UA = '/logo-ua.png'
 
-/**
- * URL de PDF de muestra que se abre cuando el informe existe.
- * En producción este valor vendría de la respuesta del backend (Supabase
- * Storage, una URL firmada, etc.). Ver comentario en buscarInforme().
- */
-const PDF_DEMO_URL =
-  'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'
 
 export default function App() {
   // Estado del input "Número de Informe".
@@ -60,18 +53,16 @@ export default function App() {
    * @returns {Promise<string|null>} URL del PDF si existe, o null si no existe.
    */
   async function buscarInforme(numero) {
-    if (convexHabilitado && convex) {
-      const r = await convex.query('informes:getByNumero', { numero })
-      return r?.urlPdf ?? null
+    // Sin backend configurado se falla de forma VISIBLE. Antes había aquí una
+    // simulación con un PDF de muestra: si el build salía sin VITE_CONVEX_URL,
+    // el sitio parecía funcionar y respondía "el certificado no existe" a
+    // certificados que sí existen, sin ninguna pista de qué pasaba.
+    if (!convexHabilitado || !convex) {
+      throw new Error('CONFIG')
     }
 
-    // --- FALLBACK / SIMULACIÓN (activo hasta configurar VITE_CONVEX_URL) ---
-    await new Promise((resolve) => setTimeout(resolve, 700)) // latencia simulada
-    const informesDemo = {
-      'INF-2024-001': PDF_DEMO_URL,
-    }
-    return informesDemo[numero.trim().toUpperCase()] ?? null
-    // --- FIN FALLBACK ---
+    const r = await convex.query('informes:getByNumero', { numero })
+    return r?.urlPdf ?? null
   }
 
   // `ventana` es una pestaña previamente abierta durante el gesto del usuario
@@ -105,7 +96,11 @@ export default function App() {
     } catch (err) {
       if (ventana && !ventana.closed) ventana.close()
       console.error('Error al buscar el certificado:', err)
-      setError('Ocurrió un error al buscar el certificado. Inténtalo nuevamente.')
+      setError(
+        err?.message === 'CONFIG'
+          ? 'El servicio de verificación no está configurado. Avisa al administrador del sitio.'
+          : 'Ocurrió un error al buscar el certificado. Inténtalo nuevamente.',
+      )
     } finally {
       setCargando(false)
     }

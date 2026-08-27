@@ -1,4 +1,4 @@
-import { query, mutation } from './_generated/server'
+import { query, mutation, internalMutation } from './_generated/server'
 import { v } from 'convex/values'
 import { normalizarNumero } from './lib.js'
 
@@ -72,9 +72,16 @@ export const getByNumero = query({
 
 /**
  * Inserta o actualiza un informe por URL externa (idempotente por número).
- * Útil para alta por CLI: npx convex run informes:upsert '{...}'
+ *
+ * ⚠️ Es una internalMutation A PROPÓSITO: NO puede llamarse desde el navegador.
+ * Siendo pública, cualquiera que leyera la URL de Convex del bundle podía
+ * SUSTITUIR el archivo de un certificado real por otro (basta con enviar el
+ * mismo número y otra urlPdf) o dar de alta certificados falsos. En un sitio
+ * cuya función es verificar documentos, eso es falsificación.
+ *
+ * Alta por CLI: npx convex run informes:upsert '{...}'
  */
-export const upsert = mutation({
+export const upsert = internalMutation({
   args: {
     numero: v.string(),
     urlPdf: v.string(),
@@ -98,10 +105,11 @@ export const upsert = mutation({
 })
 
 /**
- * Siembra datos de prueba. Ejecutar una vez con:
+ * Siembra datos de prueba. internalMutation: no invocable desde el navegador
+ * (siendo pública, cualquiera podía llenar la base con registros de prueba).
  *   npx convex run informes:seed
  */
-export const seed = mutation({
+export const seed = internalMutation({
   args: {},
   handler: async (ctx) => {
     const demo = [
@@ -130,7 +138,7 @@ export const seed = mutation({
  *
  *   npx convex run informes:backfillNumeroNorm
  */
-export const backfillNumeroNorm = mutation({
+export const backfillNumeroNorm = internalMutation({
   args: {},
   handler: async (ctx) => {
     const todos = await ctx.db.query('informes').collect()
